@@ -167,7 +167,7 @@ try:
             #print(f'request image from {cam} {h}')
             msg, jpg_buffer = h.recv_jpg()
             frame = cv2.imdecode(np.frombuffer(jpg_buffer, dtype='uint8'), -1)
-            h.send_reply(b'OK')
+            #h.send_reply(b'OK')
             views[cam] = (msg, frame)
             
         # process frames 
@@ -223,7 +223,13 @@ try:
             # reset fps
             if frames > 20: 
                 frames = 0
-                start = now     
+                start = now
+                
+        for cam, h in hubs.items():
+            # sending reply to camera enables next shot.
+            # this way slow processing on this end won't result in
+            # queue building up on the camera end
+            h.send_reply(b'OK')
     
     # TODO capture.release() all cams
 finally:
