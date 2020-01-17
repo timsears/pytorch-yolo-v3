@@ -16,11 +16,15 @@ import argparse
 import socket
 from imagezmq import ImageHub
 import subprocess
-import shlex 
+import shlex
+
 
 def start_cam(cam = 'pi1', host = 'nassella', port = '8234'):
     try:
-        remote_command = f'ssh -f {cam} ./startcam.sh {host}.local {port}'
+        #remote_command = f'ssh -f {cam} ./startcam.sh {host}.local {port}'
+        # equivalent to the following....
+        remote_command = f'ssh -f {cam} cd imagezmq/tests; nohup python my_streamer2.py --server {host}.local --port {port} &'
+        print(remote_command)
         cmd = shlex.split(remote_command)
         subprocess.run(cmd)
     except (CalledProcessError) as exc:
@@ -111,7 +115,7 @@ if __name__ == '__main__':
     print("Loading network.....")
     model = Darknet(args.cfgfile)
     model.load_weights(args.weightsfile)
-    print("Network successfully loaded")
+    print("Network loaded")
 
     model.net_info["height"] = args.reso
     inp_dim = int(model.net_info["height"])
