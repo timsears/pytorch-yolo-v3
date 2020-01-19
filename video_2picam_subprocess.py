@@ -16,20 +16,32 @@ import argparse
 import socket
 from imagezmq import ImageHub
 import subprocess
-import shlex
+#import shlex
+#import signal
+import os
 
+def stop_cam(cam):
+    remote_command = f"ssh -f {cam} systemctl --user stop picamera@'\*'.service"
+    print(remote_command)
+    os.system(remote_command)
+    
 
 def start_cam(cam = 'pi1', host = 'nassella', port = '8234'):
     try:
         #remote_command = f'ssh -f {cam} ./startcam.sh {host}.local {port}'
         # equivalent to the following....
-        remote_command = f'ssh -f {cam} cd imagezmq/tests; nohup python my_streamer2.py --server {host}.local --port {port} &'
+        #remote_command = f'ssh -f {cam} cd imagezmq/tests; nohup python my_streamer2.py --server {host}.local --port {port} &'
+        #remote_command = f'ssh -f {cam} cd imagezmq/tests; python my_streamer2.py --server {host}.local --port {port}' # won't cleanup
+        #remote_command = f'ssh -t {cam} cd imagezmq/tests; python my_streamer2.py --server {host}.local --port {port}' # will clean up, but makes server terminal look horrible and no longer respond to Ctl-S Ctl-Q. requires 'stty sane' to restore
+        space = '\\\\x20'
+        remote_command = f"ssh -f {cam} systemctl --user restart picamera@'{host}.local{space}{port}'" # use systemd to manage daemons! {space} is for weird systemd escaping
         print(remote_command)
-        cmd = shlex.split(remote_command)
-        subprocess.run(cmd)
-    except (CalledProcessError) as exc:
+        #cmd = shlex.split(remote_command)
+        #p = subprocess.Popen(cmd)
+        os.system(remote_command)
+    except Exception as exc:
         sys.exit(f'SSH connection to {cam} failed with: {exc}')
-
+    
 
 def get_test_input(input_dim, CUDA):
     img = cv2.imread("dog-cycle-car.png")
@@ -135,6 +147,8 @@ if __name__ == '__main__':
     #new
     picams = { 'pi1' : '8234', 'pi2' : '8235'} 
     thishost = socket.gethostname()
+
+    for cam in picams.keys(): stop_cam(cam)
     
     print("bind ports for cameras")
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -151,12 +165,11 @@ if __name__ == '__main__':
     views = {}
     start = time.time()    
 
-
     for cam, port in picams.items():
         print(f'Starting {cam}')
         start_cam(cam = cam, host = thishost, port = port)
-
-    #print('cams started')
+    print('Cameras started')
+    
 go = True
 
 try:
@@ -172,9 +185,10 @@ try:
             
         # process frames 
         for cam, (msg, frame) in views.items():
+            
             img, orig_im, dim = prep_image(frame, inp_dim)
             im_dim = torch.FloatTensor(dim).repeat(1,2)                        
-            
+            #print(f'process image from {cam} {h}')
             if CUDA:
                 im_dim = im_dim.cuda()
                 img = img.cuda()
@@ -182,7 +196,8 @@ try:
             with torch.no_grad():   
                 output = model(Variable(img), CUDA)
                 
-            output = write_results(output, confidence, num_classes, nms = True, nms_conf = nms_thesh)
+            output = write_results(output, confidence, num_classes,
+                                   nms = True, nms_conf = nms_thesh)
 
             # if type(output) == int:
             #     frames += 1
@@ -219,12 +234,14 @@ try:
                 break
             frames += 1
             now = time.time()
-            print(str(frames) + " FPS of the video is {:5.2f}".format( frames / (now - start)))
             # reset fps
-            if frames > 20: 
+            if frames == 20:
+                try: fps = "{:5.1f}".format(frames / (now - start))
+                except: fps = 0
+                print(f'fps: {fps}')
                 frames = 0
                 start = now
-                
+
         for cam, h in hubs.items():
             # sending reply to camera enables next shot.
             # this way slow processing on this end won't result in
@@ -233,9 +250,11 @@ try:
     
     # TODO capture.release() all cams
 finally:
+    print("Cleanup")
     cv2.destroyAllWindows()
-    exit(0)
-    #
+    for cam in picams.keys(): stop_cam(cam)    
+    print("Exiting")
+
 
     
 
